@@ -2,7 +2,7 @@
 
 pragma solidity ^0.7.0;
 
-import "./ECDSA.sol";
+import "../../vendor/openzeppelin-contracts/contracts/cryptography/ECDSA.sol";
 
 // Sig is a library to verify signatures.
 library Sig {

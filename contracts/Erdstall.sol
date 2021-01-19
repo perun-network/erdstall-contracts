@@ -3,7 +3,8 @@
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 
-import "./Sig.sol";
+import "./lib/Sig.sol";
+import "../vendor/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract Erdstall {
     // The epoch-balance statements signed by the TEE.
@@ -20,6 +21,7 @@ contract Erdstall {
     uint64 public immutable bigBang; // start of first epoch
     uint64 public immutable phaseDuration; // number of blocks of one epoch phase
     uint64 public immutable responseDuration; // operator response grace period
+    IERC20 public immutable token; // ERC20 token handled by this Erdstall
 
     mapping(uint64 => mapping(address => uint256)) public deposits; // epoch => account => balance value
     mapping(uint64 => mapping(address => uint256)) public exits; // epoch => account => balance value
@@ -34,13 +36,14 @@ contract Erdstall {
     event Challenged(uint64 indexed epoch, address indexed account);
     event Frozen(uint64 indexed epoch);
 
-    constructor(address _tee, uint64 _phaseDuration, uint64 _responseDuration) {
+    constructor(address _tee, uint64 _phaseDuration, uint64 _responseDuration, address _token) {
         // responseDuration should be at most half the phaseDuration
         require(2 * _responseDuration <= _phaseDuration, "responseDuration too long");
         tee = _tee;
         bigBang = uint64(block.number);
         phaseDuration = _phaseDuration;
         responseDuration = _responseDuration;
+        token = IERC20(_token);
     }
 
     modifier onlyAlive {
@@ -54,11 +57,16 @@ contract Erdstall {
     // Normal Operation
     //
 
-    function deposit() external payable onlyAlive {
+    // deposit deposits `amount` token into the Erdstall system, crediting the
+    // sender of the transaction. The sender must have set an allowance by
+    // calling `allowance` on the token contract before calling `deposit`.
+    function deposit(uint256 amount) external onlyAlive {
         uint64 epoch = depositEpoch();
-        deposits[epoch][msg.sender] += msg.value;
+        require(token.transferFrom(msg.sender, address(this), amount),
+                "deposit: token transfer failed");
+        deposits[epoch][msg.sender] += amount;
 
-        emit Deposited(epoch, msg.sender, msg.value);
+        emit Deposited(epoch, msg.sender, amount);
     }
 
     // exit lets a user exit and the end of the epoch's exit period.
@@ -91,7 +99,7 @@ contract Erdstall {
         require(value > 0, "nothing left to withdraw");
         exits[epoch][msg.sender] = 0;
 
-        msg.sender.transfer(value);
+        require(token.transfer(msg.sender, value), "withdraw: token transfer failed");
         emit Withdrawn(epoch, msg.sender, value);
     }
 
@@ -174,7 +182,7 @@ contract Erdstall {
         require(!frozenWithdrawals[msg.sender], "already withdrawn (frozen)");
         frozenWithdrawals[msg.sender] = true;
 
-        msg.sender.transfer(value);
+        require(token.transfer(msg.sender, value), "withdrawFrozen: token transfer failed");
         emit Withdrawn(frozenEpoch, msg.sender, value);
     }
 
