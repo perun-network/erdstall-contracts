@@ -11,6 +11,7 @@ contract Erdstall {
     struct Balance {
         uint64 epoch;
         address account;
+        bool exit;
         uint256 value;
     }
 
@@ -23,17 +24,16 @@ contract Erdstall {
     uint64 public immutable responseDuration; // operator response grace period
     IERC20 public immutable token; // ERC20 token handled by this Erdstall
 
-    mapping(uint64 => mapping(address => uint256)) public deposits; // epoch => account => balance value
-    mapping(uint64 => mapping(address => uint256)) public exits; // epoch => account => balance value
-    mapping(uint64 => mapping(address => uint256)) public challenges; // epoch => account => recovery value
+    mapping(uint64 => mapping(address => uint256)) public deposits; // epoch => account => deposit value
+    mapping(uint64 => mapping(address => bool)) public withdrawn; // epoch => account => withdrawn-flag
+    mapping(uint64 => mapping(address => bool)) public challenges; // epoch => account => challenge-flag
     mapping(uint64 => uint256) public numChallenges; // epoch => numChallenges
-    mapping(address => bool) public frozenWithdrawals; // account => withdrawn-flag
     uint64 public frozenEpoch = notFrozen; // epoch at which contract was frozen
 
     event Deposited(uint64 indexed epoch, address indexed account, uint256 value);
-    event Exiting(uint64 indexed epoch, address indexed account, uint256 value);
     event Withdrawn(uint64 indexed epoch, address indexed account, uint256 value);
     event Challenged(uint64 indexed epoch, address indexed account);
+    event ChallengeResponded(uint64 indexed epoch, address indexed account, uint256 value, bytes sig);
     event Frozen(uint64 indexed epoch);
 
     constructor(address _tee, uint64 _phaseDuration, uint64 _responseDuration, address _token) {
@@ -47,9 +47,9 @@ contract Erdstall {
     }
 
     modifier onlyAlive {
-        require(!isFrozen(), "plasma frozen");
+        require(!isFrozen(), "Erdstall frozen");
         // in case freeze wasn't called yet...
-        require(!isLastEpochChallenged(), "plasma freezing");
+        require(!isLastEpochChallenged(), "Erdstall freezing");
         _;
     }
 
@@ -69,35 +69,24 @@ contract Erdstall {
         emit Deposited(epoch, msg.sender, amount);
     }
 
-    // exit lets a user exit and the end of the epoch's exit period.
-    // sig must be signature created by signText(keccak256(abi.encode(balance))).
-    // For now, only full exits are allowed.
+    // withdraw lets a user withdraw their funds from the system. It is only
+    // possible to withdraw with an exit proof, that is, a balance proof with
+    // field `exit` set to true.
     //
-    // exit is also used to answer challenges.
-    function exit(Balance calldata balance, bytes calldata sig) external onlyAlive {
-        require(balance.epoch == exitEpoch(), "exit: wrong epoch");
+    // `sig` must be a signature created with
+    // `signText(keccak256(abi.encode(balance)))`.
+    function withdraw(Balance calldata balance, bytes calldata sig) external onlyAlive {
+        require(balance.epoch <= sealedEpoch(), "withdraw: too early");
+        require(balance.account == msg.sender, "withdraw: wrong sender");
+        require(balance.exit, "withdraw: no exit proof");
         verifyBalance(balance, sig);
-        if (challenges[balance.epoch][balance.account] == 0) {
-            // if not challenged, only user can exit
-            require(balance.account == msg.sender, "exit: wrong sender");
-        } else {
-            // reset challenge if this is a challenge response
-            challenges[balance.epoch][balance.account] = 0;
-            numChallenges[balance.epoch]--;
-        }
 
-        exits[balance.epoch][balance.account] = balance.value;
-
-        emit Exiting(balance.epoch, balance.account, balance.value);
+        _withdraw(balance.epoch, balance.value);
     }
 
-    function withdraw(uint64 epoch) external onlyAlive {
-        // can only withdraw after exit period
-        require(epoch < exitEpoch(), "withdraw: too early");
-
-        uint256 value = exits[epoch][msg.sender];
-        require(value > 0, "nothing left to withdraw");
-        exits[epoch][msg.sender] = 0;
+    function _withdraw(uint64 epoch, uint256 value) internal {
+        require(!withdrawn[epoch][msg.sender], "already withdrawn");
+        withdrawn[epoch][msg.sender] = true;
 
         require(token.transfer(msg.sender, value), "withdraw: token transfer failed");
         emit Withdrawn(epoch, msg.sender, value);
@@ -107,12 +96,12 @@ contract Erdstall {
     // Challenge Functions
     //
 
-    // Challenges the operator to post the current exit epoch's balance statement.
+    // Challenges the operator to post the user's last epoch's exit proof.
     // The user needs to pass the latest balance proof, that is, of the just
     // sealed epoch, to proof that they are part of the system.
     //
     // After a challenge is opened, the operator (anyone, actually) can respond
-    // to the challenge using function `exit`.
+    // to the challenge using function `respondChallenge`.
     function challenge(Balance calldata balance, bytes calldata sig) external onlyAlive {
         require(balance.account == msg.sender, "challenge: wrong sender");
         require(balance.epoch == sealedEpoch(), "challenge: wrong epoch");
@@ -122,46 +111,45 @@ contract Erdstall {
     }
 
     // challengeDeposit should be called by a user if they deposited but never
-    // received a deposit or balance proof from the operator.
+    // received a balance proof from the operator.
     //
     // After a challenge is opened, the operator (anyone, actually) can respond
-    // to the challenge using function `exit`.
+    // to the challenge using function `respondChallenge`.
     function challengeDeposit() external onlyAlive {
         registerChallenge(0);
     }
 
-    function registerChallenge(uint256 recoveryBalance) internal {
-        require(!isChallengeResponsePhase(), "in challenge response phase");
-        uint64 epoch = exitEpoch();
-        require(challenges[epoch][msg.sender] == 0, "already challenged");
+    function registerChallenge(uint256 sealedValue) internal {
+        uint64 epoch = challengeEpoch();
+        require(!challenges[epoch][msg.sender], "already challenged");
 
-        uint256 value = recoveryBalance + deposits[epoch][msg.sender];
+        uint256 value = sealedValue + deposits[epoch][msg.sender];
         require(value > 0, "no value in system");
 
-        challenges[epoch][msg.sender] = value;
+        challenges[epoch][msg.sender] = true;
         numChallenges[epoch]++;
 
         emit Challenged(epoch, msg.sender);
     }
 
-    // withdrawChallenge lets open challengers withdraw all funds locked in the
-    // frozen contract. The funds were already determined when the challenge was
-    // posted using either `challenge` or `challengeDeposit`.
-    //
-    // Implicitly calls ensureFrozen to ensure that the contract state is set to
-    // frozen if the last epoch has an unanswered challenge.
-    function withdrawChallenge() external {
-        ensureFrozen();
+    function respondChallenge(Balance calldata balance, bytes calldata sig) external onlyAlive {
+        require(balance.epoch == responseEpoch(), "respondChallenge: wrong epoch");
+        require(balance.exit, "respondChallenge: no exit proof");
+        verifyBalance(balance, sig);
 
-        uint256 value = challenges[frozenEpoch+1][msg.sender];
-        require(value > 0, "nothing left to withdraw (frozen)");
+        uint64 challEpoch = balance.epoch - 1;
+        require(challenges[challEpoch][balance.account], "respondChallenge: no challenge registered");
+        challenges[challEpoch][balance.account] = false;
+        numChallenges[challEpoch]--;
 
-        _withdrawFrozen(value);
+        // The challenging user can create their exit proof from this data and
+        // withdraw with `withdraw`.
+        emit ChallengeResponded(balance.epoch, balance.account, balance.value, sig);
     }
 
-    // withdrawFrozen lets non-challengers withdraw all funds locked in the
-    // frozen contract. Parameter `balance` needs to be the balance proof of the
-    // last unchallenged epoch.
+    // withdrawFrozen lets any user withdraw all funds locked in the frozen
+    // contract. Parameter `balance` needs to be the balance proof of the last
+    // unchallenged epoch.
     //
     // Implicitly calls ensureFrozen to ensure that the contract state is set to
     // frozen if the last epoch has an unanswered challenge.
@@ -175,15 +163,7 @@ contract Erdstall {
         // Also recover deposits from broken epoch
         uint256 value = balance.value + deposits[frozenEpoch+1][msg.sender];
 
-        _withdrawFrozen(value);
-    }
-
-    function _withdrawFrozen(uint256 value) internal {
-        require(!frozenWithdrawals[msg.sender], "already withdrawn (frozen)");
-        frozenWithdrawals[msg.sender] = true;
-
-        require(token.transfer(msg.sender, value), "withdrawFrozen: token transfer failed");
-        emit Withdrawn(frozenEpoch, msg.sender, value);
+        _withdraw(frozenEpoch, value);
     }
 
     // ensureFrozen ensures that the state of the contract is set to frozen if
@@ -195,25 +175,19 @@ contract Erdstall {
         if (isFrozen()) { return; }
         require(isLastEpochChallenged(), "no challenge in last epoch");
 
-        // freezing to previous epoch
-        uint64 epoch = freezingEpoch() - 1;
+        // freezing to previous, that is, last unchallenged epoch
+        uint64 epoch = challengedEpoch() - 1;
         frozenEpoch = epoch;
 
         emit Frozen(epoch);
     }
 
     function isLastEpochChallenged() internal view returns (bool) {
-        return numChallenges[freezingEpoch()] > 0;
+        return numChallenges[challengedEpoch()] > 0;
     }
 
     function isFrozen() internal view returns (bool) {
         return frozenEpoch != notFrozen;
-    }
-
-    function isChallengeResponsePhase() internal view returns (bool) {
-        // the last responseDuration blocks of each exit phase are reserved for
-        // challenge responses.
-        return phaseDuration - ((uint64(block.number) - bigBang) % phaseDuration) <= responseDuration;
     }
 
     //
@@ -224,16 +198,20 @@ contract Erdstall {
         return epoch();
     }
 
-    function exitEpoch() internal view returns (uint64) {
-        return epoch()-2;
+    function challengeEpoch() internal view returns (uint64) {
+        return epoch()-1;
     }
 
-    function freezingEpoch() internal view returns (uint64) {
-        return epoch()-3;
+    function responseEpoch() internal view returns (uint64) {
+        return epoch()-1;
     }
 
     function sealedEpoch() internal view returns (uint64) {
-        return epoch()-3;
+        return epoch()-2;
+    }
+
+    function challengedEpoch() internal view returns (uint64) {
+        return epoch()-2;
     }
 
     // epoch returns the current epoch. It should not be used directly in public
@@ -253,6 +231,7 @@ contract Erdstall {
             address(this),
             balance.epoch,
             balance.account,
-            balance.value);
+            balance.value,
+            balance.exit);
     }
 }
