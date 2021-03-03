@@ -162,6 +162,21 @@ contract Erdstall {
         _withdraw(frozenEpoch, value);
     }
 
+    // withdrawFrozenDeposit lets any user withdraw the deposits that they made
+    // in the challenged and broken epoch.
+    //
+    // This function should only be called by users who never received a balance
+    // proof and thus never had any balance in the system, to recover their
+    // deposits.
+    function withdrawFrozenDeposit() external {
+        ensureFrozen();
+
+        uint256 value = deposits[frozenEpoch+1][msg.sender];
+        require(value > 0, "no frozen deposit");
+
+        _withdraw(frozenEpoch, value);
+    }
+
     // ensureFrozen ensures that the state of the contract is set to frozen if
     // the last epoch has at least one unanswered challenge.
     //
