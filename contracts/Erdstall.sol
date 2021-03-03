@@ -20,8 +20,7 @@ contract Erdstall {
     // Parameters set during deployment.
     address public immutable tee; // yummi 🍵
     uint64 public immutable bigBang; // start of first epoch
-    uint64 public immutable phaseDuration; // number of blocks of one epoch phase
-    uint64 public immutable responseDuration; // operator response grace period
+    uint64 public immutable epochDuration; // number of blocks of one epoch phase
     IERC20 public immutable token; // ERC20 token handled by this Erdstall
 
     mapping(uint64 => mapping(address => uint256)) public deposits; // epoch => account => deposit value
@@ -36,13 +35,10 @@ contract Erdstall {
     event ChallengeResponded(uint64 indexed epoch, address indexed account, uint256 value, bytes sig);
     event Frozen(uint64 indexed epoch);
 
-    constructor(address _tee, uint64 _phaseDuration, uint64 _responseDuration, address _token) {
-        // responseDuration should be at most half the phaseDuration
-        require(2 * _responseDuration <= _phaseDuration, "responseDuration too long");
+    constructor(address _tee, uint64 _epochDuration, address _token) {
         tee = _tee;
         bigBang = uint64(block.number);
-        phaseDuration = _phaseDuration;
-        responseDuration = _responseDuration;
+        epochDuration = _epochDuration;
         token = IERC20(_token);
     }
 
@@ -218,7 +214,7 @@ contract Erdstall {
     // functions, but the fooEoch functions instead, as they account for the
     // correct shifts.
     function epoch() internal view returns (uint64) {
-        return (uint64(block.number) - bigBang) / phaseDuration;
+        return (uint64(block.number) - bigBang) / epochDuration;
     }
 
     function verifyBalance(Balance memory balance, bytes memory sig) public view {
