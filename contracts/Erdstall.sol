@@ -111,6 +111,7 @@ contract Erdstall {
     function challenge(Balance calldata balance, bytes calldata sig) external onlyAlive {
         require(balance.account == msg.sender, "challenge: wrong sender");
         require(balance.epoch == sealedEpoch(), "challenge: wrong epoch");
+        require(!balance.exit, "challenge: exit proof");
         verifyBalance(balance, sig);
 
         registerChallenge(balance.value);
