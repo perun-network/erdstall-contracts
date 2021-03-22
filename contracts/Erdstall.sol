@@ -1,46 +1,80 @@
 // SPDX-License-Identifier: Apache-2.0
 
-pragma solidity ^0.7.0;
-pragma experimental ABIEncoderV2;
+pragma solidity ^0.8.0;
 
+import "./TokenHolder.sol";
 import "./lib/Sig.sol";
-import "../vendor/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Erdstall {
+contract Erdstall is Ownable {
     // The epoch-balance statements signed by the TEE.
     struct Balance {
         uint64 epoch;
         address account;
         bool exit;
-        uint256 value;
+        TokenValue[] tokens;
     }
 
-    uint64 constant notFrozen = uint64(-2); // use 2nd-highest number to indicate not-frozen
+    struct TokenValue {
+        address token;
+        bytes value;
+    }
+
+    struct MintReceipt {
+        address token;
+        bytes value;
+        bytes sig; // TEE sig on {"ErdstallMint", token, value}
+    }
+    // TODO:
+    //   * encoder and sig verifier for MintReceipt
+    //   * function mint(MintReceipt[]) public
+    //   * withdrawal with minting function(s) (cheaper combined call)
+
+    // use 2nd-highest number to indicate not-frozen
+    uint64 constant notFrozen = 0xfffffffffffffffe;
 
     // Parameters set during deployment.
     address public immutable tee; // yummi 🍵
     uint64 public immutable bigBang; // start of first epoch
     uint64 public immutable epochDuration; // number of blocks of one epoch
-    IERC20 public immutable token; // ERC20 token handled by this Erdstall
 
-    mapping(uint64 => mapping(address => uint256)) public deposits; // epoch => account => deposit value
+    mapping(address => address) public tokenHolders; // token => holder contract
+
+    // epoch => account => token values
+    // Multiple deposits can be made in a single epoch, so we have to use an
+    // array.
+    mapping(uint64 => mapping(address => TokenValue[])) public deposits;
     mapping(uint64 => mapping(address => bool)) public withdrawn; // epoch => account => withdrawn-flag
     mapping(uint64 => mapping(address => bool)) public challenges; // epoch => account => challenge-flag
     mapping(uint64 => uint256) public numChallenges; // epoch => numChallenges
     uint64 public frozenEpoch = notFrozen; // epoch at which contract was frozen
 
-    event Deposited(uint64 indexed epoch, address indexed account, uint256 value);
-    event Withdrawn(uint64 indexed epoch, address indexed account, uint256 value);
+    event TokenRegistered(address token, address holder);
+    event Deposited(uint64 indexed epoch, address indexed account, address token, bytes value);
+    event Withdrawn(uint64 indexed epoch, address indexed account, TokenValue[] tokens);
     event Challenged(uint64 indexed epoch, address indexed account);
-    event ChallengeResponded(uint64 indexed epoch, address indexed account, uint256 value, bytes sig);
+    event ChallengeResponded(uint64 indexed epoch, address indexed account, TokenValue[] tokens, bytes sig);
     event Frozen(uint64 indexed epoch);
 
-    constructor(address _tee, uint64 _epochDuration, address _token) {
+    constructor(address _tee, uint64 _epochDuration) {
         tee = _tee;
         bigBang = uint64(block.number);
         epochDuration = _epochDuration;
-        token = IERC20(_token);
     }
+
+    function registerTokenHolder(address token, address holder) external onlyOwner {
+        require(tokenHolders[token] == address(0), "Erdstall: token holder already set");
+        tokenHolders[token] = holder;
+
+        emit TokenRegistered(token, holder);
+    }
+
+    function getTokenHolder(address token) internal view returns (TokenHolder) {
+        address holder = tokenHolders[token];
+        require(holder != address(0), "token not registered");
+        return TokenHolder(holder);
+    }
+
 
     modifier onlyAlive() {
         require(!isFrozen(), "Erdstall frozen");
@@ -63,13 +97,18 @@ contract Erdstall {
     // calling `allowance` on the token contract before calling `deposit`.
     //
     // Can only be called if there are no open challenges.
-    function deposit(uint256 amount) external onlyAlive onlyUnchallenged {
-        uint64 epoch = epoch();
-        require(token.transferFrom(msg.sender, address(this), amount),
-                "deposit: token transfer failed");
-        deposits[epoch][msg.sender] += amount;
+    function deposit(address token, bytes calldata value)
+    external payable onlyAlive onlyUnchallenged
+    {
+        uint64 ep = epoch();
 
-        emit Deposited(epoch, msg.sender, amount);
+        TokenHolder holder = getTokenHolder(token);
+        // Note: msg.value only relevant for ETHHolder.
+        holder.deposit{value: msg.value}(token, msg.sender, value);
+        // Record deposit in case of freeze of the next two epochs.
+        deposits[ep][msg.sender].push(TokenValue({token: token, value: value}));
+
+        emit Deposited(ep, msg.sender, token, value);
     }
 
     // withdraw lets a user withdraw their funds from the system. It is only
@@ -77,25 +116,32 @@ contract Erdstall {
     // field `exit` set to true.
     //
     // `sig` must be a signature created with
-    // `signText(keccak256(abi.encode(balance)))`.
+    // `signText(keccak256(abi.encode(...)))`.
+    // See `encodeBalanceProof` for exact encoding specification.
     //
     // Can only be called if there are no open challenges.
     function withdraw(Balance calldata balance, bytes calldata sig)
-    external onlyAlive onlyUnchallenged {
+    external onlyAlive onlyUnchallenged
+    {
         require(balance.epoch <= sealedEpoch(), "withdraw: too early");
         require(balance.account == msg.sender, "withdraw: wrong sender");
         require(balance.exit, "withdraw: no exit proof");
         verifyBalance(balance, sig);
 
-        _withdraw(balance.epoch, balance.value);
+        _withdraw(balance.epoch, balance.tokens);
     }
 
-    function _withdraw(uint64 epoch, uint256 value) internal {
-        require(!withdrawn[epoch][msg.sender], "already withdrawn");
-        withdrawn[epoch][msg.sender] = true;
+    // Transfers all tokens to msg.sender, using each token's token holder.
+    function _withdraw(uint64 _epoch, TokenValue[] memory tokens) internal {
+        require(!withdrawn[_epoch][msg.sender], "already withdrawn");
+        withdrawn[_epoch][msg.sender] = true;
 
-        require(token.transfer(msg.sender, value), "withdraw: token transfer failed");
-        emit Withdrawn(epoch, msg.sender, value);
+        for (uint i=0; i < tokens.length; i++) {
+            TokenHolder holder = getTokenHolder(tokens[i].token);
+            holder.transfer(tokens[i].token, msg.sender, tokens[i].value);
+        }
+
+        emit Withdrawn(_epoch, msg.sender, tokens);
     }
 
     //
@@ -114,7 +160,7 @@ contract Erdstall {
         require(!balance.exit, "challenge: exit proof");
         verifyBalance(balance, sig);
 
-        registerChallenge(balance.value);
+        registerChallenge(balance.tokens.length);
     }
 
     // challengeDeposit should be called by a user if they deposited but never
@@ -126,12 +172,13 @@ contract Erdstall {
         registerChallenge(0);
     }
 
-    function registerChallenge(uint256 sealedValue) internal {
+    function registerChallenge(uint256 numSealedValues) internal {
         uint64 challEpoch = epoch() - 1;
         require(!challenges[challEpoch][msg.sender], "already challenged");
 
-        uint256 value = sealedValue + deposits[challEpoch][msg.sender];
-        require(value > 0, "no value in system");
+        uint256 numValues =
+            numSealedValues + deposits[challEpoch][msg.sender].length;
+        require(numValues > 0, "no value in system");
 
         challenges[challEpoch][msg.sender] = true;
         numChallenges[challEpoch]++;
@@ -162,7 +209,7 @@ contract Erdstall {
 
         // The challenging user can create their exit proof from this data and
         // withdraw with `withdraw` starting with the next epoch.
-        emit ChallengeResponded(balance.epoch, balance.account, balance.value, sig);
+        emit ChallengeResponded(balance.epoch, balance.account, balance.tokens, sig);
     }
 
     // withdrawFrozen lets any user withdraw all funds locked in the frozen
@@ -179,9 +226,8 @@ contract Erdstall {
         verifyBalance(balance, sig);
 
         // Also recover deposits from broken epochs
-        uint256 value = balance.value + frozenDeposits();
-
-        _withdraw(frozenEpoch, value);
+        TokenValue[] memory tokens = appendFrozenDeposits(balance.tokens);
+        _withdraw(frozenEpoch, tokens);
     }
 
     // withdrawFrozenDeposit lets any user withdraw the deposits that they made
@@ -193,10 +239,10 @@ contract Erdstall {
     function withdrawFrozenDeposit() external {
         ensureFrozen();
 
-        uint256 value = frozenDeposits();
-        require(value > 0, "no frozen deposit");
+        TokenValue[] memory tokens = appendFrozenDeposits(new TokenValue[](0));
+        require(tokens.length > 0, "no frozen deposit");
 
-        _withdraw(frozenEpoch, value);
+        _withdraw(frozenEpoch, tokens);
     }
 
     // ensureFrozen ensures that the state of the contract is set to frozen if
@@ -217,10 +263,25 @@ contract Erdstall {
         emit Frozen(frEpoch);
     }
 
-    function frozenDeposits() internal view returns (uint256) {
-        return deposits[frozenEpoch+1][msg.sender]
-             + deposits[frozenEpoch+2][msg.sender];
+    function appendFrozenDeposits(TokenValue[] memory tokens)
+    internal view returns (TokenValue[] memory)
+    {
+        TokenValue[] storage deps1 = deposits[frozenEpoch+1][msg.sender];
+        TokenValue[] storage deps2 = deposits[frozenEpoch+2][msg.sender];
+        TokenValue[] memory deps = new TokenValue[](tokens.length + deps1.length + deps2.length);
 
+        // Concatenate arrays
+        for (uint i=0; i < tokens.length; i++) {
+            deps[i] = tokens[i];
+        }
+        for (uint i=0; i < deps1.length; i++) {
+            deps[i+tokens.length] = deps1[i];
+        }
+        for (uint i=0; i < deps2.length; i++) {
+            deps[i+tokens.length+deps1.length] = deps2[i];
+        }
+
+        return deps;
     }
 
     function isFrozen() internal view returns (bool) {
@@ -248,7 +309,7 @@ contract Erdstall {
             address(this),
             balance.epoch,
             balance.account,
-            balance.value,
+            balance.tokens,
             balance.exit);
     }
 }
