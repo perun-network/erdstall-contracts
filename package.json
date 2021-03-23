@@ -1,0 +1,7 @@
+{
+  "name": "erdstall-contracts",
+  "devDependencies": {
+    "@openzeppelin/contracts": "^4.0.0-rc.0",
+    "hardhat": "^2.1.1"
+  }
+}

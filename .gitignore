@@ -2,7 +2,8 @@ node_modules
 yarn-error.log
 
 # generated files
-/build
+/cache
+/artifacts
 /types
 /coverage
 /test/*.js.map
