@@ -34,4 +34,18 @@ library Bytes {
 
         return y;
     }
+
+    // Returns a pointer to the same memory array as x and destructively sets
+    // the first word, which is the length of the array, to the bytes length
+    // divided by 32, effectively turning the bytes array into an uint256[].
+    //
+    // The original reference bytes x must not be used after this destructive
+    // operation.
+    function asUint256sInplace(bytes memory x) internal pure returns (uint256[] memory r) {
+        require(x.length % 32 == 0, "Bytes: length not multiple of 32");
+        assembly {
+            mstore(x, div(mload(x), 0x20))
+            r := x
+        }
+    }
 }

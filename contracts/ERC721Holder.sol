@@ -18,7 +18,7 @@ contract ERC721Holder is TokenHolder {
     function mint(address token, address owner, bytes calldata value)
     override external onlyErdstall
     {
-        uint256[] memory ids = value.asUint256s();
+        uint256[] memory ids = value.asUint256sInplace();
 
         IERC721Minter minter = IERC721Minter(token);
         for (uint i=0; i < ids.length; i++) {
@@ -29,7 +29,7 @@ contract ERC721Holder is TokenHolder {
     function transferFrom(address _token, address from, address to, bytes calldata value)
     override internal
     {
-        uint256[] memory ids = value.asUint256s();
+        uint256[] memory ids = value.asUint256sInplace();
 
         IERC721 token = IERC721(_token);
         for (uint i=0; i < ids.length; i++) {
