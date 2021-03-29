@@ -38,7 +38,7 @@ contract Erdstall is Ownable {
     uint64 public immutable bigBang; // start of first epoch
     uint64 public immutable epochDuration; // number of blocks of one epoch
 
-    mapping(address => address) public tokenHolders; // token => holder contract
+    mapping(address => TokenHolder) public tokenHolders; // token => holder contract
 
     // epoch => account => token values
     // Multiple deposits can be made in a single epoch, so we have to use an
@@ -49,7 +49,7 @@ contract Erdstall is Ownable {
     mapping(uint64 => uint256) public numChallenges; // epoch => numChallenges
     uint64 public frozenEpoch = notFrozen; // epoch at which contract was frozen
 
-    event TokenRegistered(address token, address holder);
+    event TokenRegistered(address indexed token, string tokenType, address holder);
     event Deposited(uint64 indexed epoch, address indexed account, address token, bytes value);
     event Withdrawn(uint64 indexed epoch, address indexed account, TokenValue[] tokens);
     event Challenged(uint64 indexed epoch, address indexed account);
@@ -62,17 +62,20 @@ contract Erdstall is Ownable {
         epochDuration = _epochDuration;
     }
 
-    function registerTokenHolder(address token, address holder) external onlyOwner {
-        require(tokenHolders[token] == address(0), "Erdstall: token holder already set");
-        tokenHolders[token] = holder;
+    function registerTokenHolder(address token, address holder, string calldata tokenType)
+    external onlyOwner
+    {
+        require(address(tokenHolders[token]) == address(0),
+                "Erdstall: token holder already set");
+        tokenHolders[token] = TokenHolder(holder);
 
-        emit TokenRegistered(token, holder);
+        emit TokenRegistered(token, tokenType, holder);
     }
 
     function getTokenHolder(address token) internal view returns (TokenHolder) {
-        address holder = tokenHolders[token];
-        require(holder != address(0), "token not registered");
-        return TokenHolder(holder);
+        TokenHolder holder = tokenHolders[token];
+        require(address(holder) != address(0), "token not registered");
+        return holder;
     }
 
 
@@ -103,7 +106,6 @@ contract Erdstall is Ownable {
         uint64 ep = epoch();
 
         TokenHolder holder = getTokenHolder(token);
-        // Note: msg.value only relevant for ETHHolder.
         holder.deposit{value: msg.value}(token, msg.sender, value);
         // Record deposit in case of freeze of the next two epochs.
         deposits[ep][msg.sender].push(TokenValue({token: token, value: value}));

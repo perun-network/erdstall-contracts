@@ -59,5 +59,5 @@ abstract contract TokenHolder {
 
     // Derived contracts can implement this function and then don't need to
     // implement `deposit` or `transfer`.
-    function transferFrom(address token, address from, address to, bytes calldata value) internal virtual;
+    function transferFrom(address token, address from, address to, bytes calldata value) virtual internal;
 }
