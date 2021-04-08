@@ -21,15 +21,14 @@ contract ETHHolder is TokenHolder {
         revert("Wish I could do that.");
     }
 
-    function deposit(address token, address, bytes calldata value)
-    override external payable onlyErdstall zeroToken(token)
+    // deposit deposits the message's value into the Erdstall system, crediting
+    // the caller.
+    function deposit() external payable
     {
-        uint256 amount = value.asUint256();
-        require(amount == msg.value, "ETHHolder: value not in msg");
-        require(amount > 0, "ETHHolder: zero value");
+        require(msg.value > 0, "ETHHolder: zero value");
 
-        // We don't need to store any state, the value is stored in the
-        // ETHHolder contract.
+        bytes memory value = abi.encodePacked(msg.value);
+        erdstall.deposit(msg.sender, address(0), value);
     }
 
     function transfer(address token, address recipient, bytes calldata value)
@@ -38,7 +37,4 @@ contract ETHHolder is TokenHolder {
         uint256 amount = value.asUint256();
         payable(recipient).sendValue(amount);
     }
-
-    // never used because we overwrite `deposit` and `transfer`.
-    function transferFrom(address, address, address, bytes calldata) override internal {}
 }

@@ -38,6 +38,7 @@ contract Erdstall is Ownable {
     uint64 public immutable bigBang; // start of first epoch
     uint64 public immutable epochDuration; // number of blocks of one epoch
 
+    mapping(address => string) public tokenTypes; // holder => type
     mapping(address => TokenHolder) public tokenHolders; // token => holder contract
 
     // epoch => account => token values
@@ -49,7 +50,8 @@ contract Erdstall is Ownable {
     mapping(uint64 => uint256) public numChallenges; // epoch => numChallenges
     uint64 public frozenEpoch = notFrozen; // epoch at which contract was frozen
 
-    event TokenRegistered(address indexed token, string tokenType, address holder);
+    event TokenTypeRegistered(string tokenType, address tokenHolder);
+    event TokenRegistered(address indexed token, string tokenType, address tokenHolder);
     event Deposited(uint64 indexed epoch, address indexed account, address token, bytes value);
     event Withdrawn(uint64 indexed epoch, address indexed account, TokenValue[] tokens);
     event Challenged(uint64 indexed epoch, address indexed account);
@@ -62,11 +64,46 @@ contract Erdstall is Ownable {
         epochDuration = _epochDuration;
     }
 
-    function registerTokenHolder(address token, address holder, string calldata tokenType)
+    // Lets the owner register a token holder for a token type. Deposits into
+    // Erdstall can be made via registered token holders.
+    function registerTokenType(address holder, string calldata tokenType)
     external onlyOwner
     {
+        require(empty(tokenTypes[holder]), "token type already registered");
+        tokenTypes[holder] = tokenType;
+
+        emit TokenTypeRegistered(tokenType, holder);
+    }
+
+    function getTokenType(address holder) internal view returns (string storage) {
+        string storage tokenType = tokenTypes[holder];
+        require(!empty(tokenType), "token holder not registered");
+        return tokenType;
+    }
+
+    // Lets the owner manually register a token's holder. This is usually done
+    // implicitly during deposits.
+    function registerToken(address token, address holder) external onlyOwner {
         require(address(tokenHolders[token]) == address(0),
                 "Erdstall: token holder already set");
+        _registerToken(token, holder);
+    }
+
+    // called during deposits to ensure that token can be mapped back to token
+    // holder during withdrawals.
+    function ensureTokenRegistered(address token, address holder) internal {
+        address regHolder = address(tokenHolders[token]);
+        if (regHolder == holder) {
+            return;
+        } else if (regHolder != address(0)) {
+            revert("registered holder mismatch");
+        }
+        _registerToken(token, holder);
+    }
+
+    function _registerToken(address token, address holder) internal {
+        // implicitly checks that holder is registered
+        string storage tokenType = getTokenType(holder);
         tokenHolders[token] = TokenHolder(holder);
 
         emit TokenRegistered(token, tokenType, holder);
@@ -78,6 +115,10 @@ contract Erdstall is Ownable {
         return holder;
     }
 
+    modifier onlyTokenHolders() {
+        require(!empty(tokenTypes[msg.sender]), "caller not token holder");
+        _;
+    }
 
     modifier onlyAlive() {
         require(!isFrozen(), "Erdstall frozen");
@@ -95,22 +136,24 @@ contract Erdstall is Ownable {
     // Normal Operation
     //
 
-    // deposit deposits `amount` token into the Erdstall system, crediting the
-    // sender of the transaction. The sender must have set an allowance by
-    // calling `allowance` on the token contract before calling `deposit`.
+    // deposit registers a deposit of `value` for token `token` from user
+    // `sender` in the Erdstall system. It can only be called by TokenHolders.
+    //
+    // Users need to deposit into the Erdstall system by depositing into the
+    // respective TokenHolders, who then call this function to record the
+    // deposit.
     //
     // Can only be called if there are no open challenges.
-    function deposit(address token, bytes calldata value)
-    external payable onlyAlive onlyUnchallenged
+    function deposit(address depositor, address token, bytes memory value)
+    external onlyTokenHolders onlyAlive onlyUnchallenged
     {
+        ensureTokenRegistered(token, msg.sender);
         uint64 ep = epoch();
 
-        TokenHolder holder = getTokenHolder(token);
-        holder.deposit{value: msg.value}(token, msg.sender, value);
         // Record deposit in case of freeze of the next two epochs.
-        deposits[ep][msg.sender].push(TokenValue({token: token, value: value}));
+        deposits[ep][depositor].push(TokenValue({token: token, value: value}));
 
-        emit Deposited(ep, msg.sender, token, value);
+        emit Deposited(ep, depositor, token, value);
     }
 
     // withdraw lets a user withdraw their funds from the system. It is only
@@ -313,5 +356,9 @@ contract Erdstall is Ownable {
             balance.account,
             balance.tokens,
             balance.exit);
+    }
+
+    function empty(string storage s) internal view returns (bool) {
+        return bytes(s).length == 0;
     }
 }
