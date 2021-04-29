@@ -1,13 +1,15 @@
+import "@nomiclabs/hardhat-waffle";
+
 /**
  * @type import('hardhat/config').HardhatUserConfig
  */
-module.exports = {
+export default {
   solidity: {
     version: "0.8.3",
     settings: {
       optimizer: {
         enabled: true,
-        runs: 100000
+        runs: 10000
       }
     }
   }
