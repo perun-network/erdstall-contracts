@@ -1,4 +1,5 @@
 import "@nomiclabs/hardhat-waffle";
+import "@typechain/hardhat";
 
 /**
  * @type import('hardhat/config').HardhatUserConfig

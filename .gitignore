@@ -3,11 +3,13 @@ yarn-error.log
 
 # generated files
 /cache
-/artifacts
 /types
+/typechain
+/contracts/.deps
 /coverage
 /test/*.js.map
 /test/*.js
+artifacts
 package-lock.json
 coverage.json
 solc-static-linux
