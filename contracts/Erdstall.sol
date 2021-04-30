@@ -122,13 +122,25 @@ contract Erdstall is Ownable {
 
     modifier onlyAlive() {
         require(!isFrozen(), "Erdstall frozen");
-        // in case ensureFrozen wasn't called yet...
-        require(numChallenges[epoch()-3] == 0, "Erdstall freezing");
+        uint64 ep = epoch();
+        // prevent underflow, freeze couldn't have happened yet.
+        if (ep >= 3) {
+            unchecked {
+                // in case ensureFrozen wasn't called yet...
+                require(numChallenges[ep-3] == 0, "Erdstall freezing");
+            }
+        }
         _;
     }
 
     modifier onlyUnchallenged() {
-        require(numChallenges[epoch()-2] == 0, "open challenges");
+        uint64 ep = epoch();
+        // prevent underflow, challenges couldn't have happened yet.
+        if (ep >= 2) {
+            unchecked {
+                require(numChallenges[ep-2] == 0, "open challenges");
+            }
+        }
         _;
     }
 
@@ -218,6 +230,7 @@ contract Erdstall is Ownable {
     }
 
     function registerChallenge(uint256 numSealedValues) internal {
+        // next line reverts (underflow) on purpose if called too early
         uint64 challEpoch = epoch() - 1;
         require(!challenges[challEpoch][msg.sender], "already challenged");
 
@@ -242,6 +255,7 @@ contract Erdstall is Ownable {
     // events from both, the latest and second latest epoch to receive their
     // exit proof.
     function respondChallenge(Balance calldata balance, bytes calldata sig) external onlyAlive {
+        // next line reverts (underflow) on purpose if called too early
         uint64 challEpoch = epoch() - 2;
         require((balance.epoch == challEpoch) || (balance.epoch == challEpoch+1),
                 "respondChallenge: wrong epoch");
@@ -296,9 +310,16 @@ contract Erdstall is Ownable {
     // It is implicitly called by withdrawFrozen and withdrawFrozenDeposit but
     // can be called seperately if the contract should be frozen before anyone
     // wants to withdraw.
+    //
+    // ensureFrozen reverts if called too early. This also implies that the
+    // functions calling it cannot be called too early (withdrawFrozen and
+    // withdrawFrozenDeposit).
     function ensureFrozen() public {
         if (isFrozen()) { return; }
-        uint64 challEpoch = epoch() - 3;
+
+        uint64 ep = epoch();
+        require(ep >= 4, "too early, no freeze possible yet");
+        uint64 challEpoch = ep - 3;
         require(numChallenges[challEpoch] > 0, "no open challenges");
 
         // freezing to previous, that is, last unchallenged epoch
@@ -334,7 +355,11 @@ contract Erdstall is Ownable {
     }
 
     function sealedEpoch() internal view returns (uint64) {
-        return epoch()-2;
+        uint64 ep = epoch();
+        require(ep >= 2, "too early, no epoch sealed yet");
+        unchecked {
+            return ep-2;
+        }
     }
 
     // epoch returns the current epoch. It should not be used directly in public
