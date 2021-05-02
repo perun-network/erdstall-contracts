@@ -379,8 +379,8 @@ contract Erdstall is Ownable {
             address(this),
             balance.epoch,
             balance.account,
-            balance.tokens,
-            balance.exit);
+            balance.exit,
+            balance.tokens);
     }
 
     function empty(string storage s) internal view returns (bool) {
