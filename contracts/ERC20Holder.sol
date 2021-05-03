@@ -25,7 +25,8 @@ contract ERC20Holder is TokenHolder {
 
     function deposit(address token, uint256 amount) external
     {
-        transferFrom(token, msg.sender, address(this), amount);
+        require(IERC20(token).transferFrom(msg.sender, address(this), amount),
+                "ERC20Holder: transferFrom failed");
         bytes memory value = abi.encodePacked(amount);
         erdstall.deposit(msg.sender, token, value);
     }
@@ -34,14 +35,6 @@ contract ERC20Holder is TokenHolder {
     override external onlyErdstall
     {
         uint256 amount = value.asUint256();
-        transferFrom(token, address(this), recipient, amount);
-    }
-
-    function transferFrom(address _token, address from, address to, uint256 amount)
-    internal
-    {
-        IERC20 token = IERC20(_token);
-        require(token.transferFrom(from, to, amount),
-                "ERC20Holder: transfer failed");
+        require(IERC20(token).transfer(recipient, amount), "ERC20Holder: transfer failed");
     }
 }
