@@ -20,16 +20,6 @@ contract Erdstall is Ownable {
         bytes value;
     }
 
-    struct MintReceipt {
-        address token;
-        bytes value;
-        bytes sig; // TEE sig on {"ErdstallMint", token, value}
-    }
-    // TODO:
-    //   * encoder and sig verifier for MintReceipt
-    //   * function mint(MintReceipt[]) public
-    //   * withdrawal with minting function(s) (cheaper combined call)
-
     // use 2nd-highest number to indicate not-frozen
     uint64 constant notFrozen = 0xfffffffffffffffe;
 
