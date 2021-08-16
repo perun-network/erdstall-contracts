@@ -18,15 +18,13 @@ abstract contract TokenHolder {
     }
 
     /*
-     * Token Holders must implement these functions.
-     * All implementations must use modifier `onlyErdstall`.
+     * Token Holders must implement transfer and it must use modifier
+     * `onlyErdstall`.
      *
      * A token holder also needs means to receive deposits. Each deposit
      * implementation must call `deposit` on the Erdstall contract to register
      * the deposit in the system.
      */
-
-    function mint(address token, address owner, bytes calldata value) virtual external;
 
     // transfer should transfer the tokens in `values` from the TokenHolder
     // contract to the recipient.

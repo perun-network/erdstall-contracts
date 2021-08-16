@@ -15,17 +15,6 @@ contract ERC721Holder is TokenHolder {
 
     constructor(address erdstall) TokenHolder(erdstall) {}
 
-    function mint(address token, address owner, bytes calldata value)
-    override external onlyErdstall
-    {
-        uint256[] memory ids = value.asUint256sInplace();
-
-        IERC721Minter minter = IERC721Minter(token);
-        for (uint i=0; i < ids.length; i++) {
-            minter.mint(owner, ids[i]);
-        }
-    }
-
     function deposit(address token, uint256[] memory ids) external
     {
         transferFrom(token, msg.sender, address(this), ids);
