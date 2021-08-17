@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { ethers, waffle } from "hardhat";
+import { ethers } from "hardhat";
 import {
-  Signer, Wallet, ContractTransaction,
+  Signer,
   constants, utils,
 } from "ethers";
 import chai from "chai";
@@ -16,7 +16,6 @@ import {
 } from "../typechain";
 
 chai.use(solidity);
-const { deployContract } = waffle;
 const { expect } = chai;
 
 describe("Erdstall", () => {
