@@ -83,10 +83,11 @@ describe("Erdstall", () => {
       .to.emit(prn, "Approval");
 
     const erc20HolderBob = erc20Holder.connect(accounts[BOB]);
-    await expect(await erc20HolderBob.deposit(prn.address, amount))
-      .to.changeTokenBalance(prn, erc20Holder, amount)
-      .and.emit(prn, "Transfer")
-      .and.emit(erdstall, "Deposited");
+    await expect(() =>
+      expect(erc20HolderBob.deposit(prn.address, amount))
+      .to.emit(prn, "Transfer")
+      .and.emit(erdstall, "Deposited"))
+      .to.changeTokenBalance(prn, erc20Holder, amount);
   });
 
 });
