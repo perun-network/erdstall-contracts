@@ -15,7 +15,7 @@ contract PerunArt is ERC721 {
 
     /**
       * @dev Creates a new PerunArt ERC721 contract.
-      * 
+      *
       * The _minter is able to mint tokens using `mint`.
       */
     constructor(string memory _name, string memory _symbol, address _minter)
