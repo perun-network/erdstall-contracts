@@ -119,7 +119,7 @@ describe("Erdstall", () => {
 
     // 3. Deploy PerunArt with holder as minter
     const prnArtFactory = (await ethers.getContractFactory("PerunArt", accounts[OP])) as PerunArt__factory;
-    prnArt = await prnArtFactory.deploy("PerunArt", "PART", erc721Holder.address);
+    prnArt = await prnArtFactory.deploy("PerunArt", "PART", [erc721Holder.address]);
     await prnArt.deployed();
 
     // 4. Register PerunArt token contact
