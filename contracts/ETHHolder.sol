@@ -17,10 +17,6 @@ contract ETHHolder is TokenHolder {
 
     constructor(address erdstall) TokenHolder(erdstall) {}
 
-    function mint(address, address, bytes calldata) override external pure {
-        revert("Wish I could do that.");
-    }
-
     // deposit deposits the message's value into the Erdstall system, crediting
     // the caller.
     function deposit() external payable

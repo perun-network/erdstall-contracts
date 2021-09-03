@@ -6,22 +6,10 @@ import "./TokenHolder.sol";
 import "./lib/Bytes.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-interface IERC20Minter {
-    function mint(address to, uint256 amount) external;
-}
-
 contract ERC20Holder is TokenHolder {
     using Bytes for bytes;
 
     constructor(address erdstall) TokenHolder(erdstall) {}
-
-    function mint(address token, address owner, bytes calldata value)
-    override external onlyErdstall
-    {
-        uint256 amount = value.asUint256();
-
-        IERC20Minter(token).mint(owner, amount);
-    }
 
     function deposit(address token, uint256 amount) external
     {
