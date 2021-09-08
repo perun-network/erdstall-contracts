@@ -8,8 +8,7 @@ import {
 import chai from "chai";
 import { solidity } from "ethereum-waffle";
 
-import * as test from "@polycrypt/erdstall/test";
-import { Balance, BalanceProof, BalanceProofs } from "@polycrypt/erdstall/api/responses";
+import { Balance } from "@polycrypt/erdstall/api/responses";
 import { Address } from "@polycrypt/erdstall/ledger";
 import { Amount, Assets, Tokens } from "@polycrypt/erdstall/ledger/assets";
 
@@ -29,7 +28,7 @@ const { expect } = chai;
 describe("Erdstall", () => {
   const EPOCHD = 12;
   const TEE = 0, OP = 1, ALICE = 2, BOB = 3;
-  const rng = test.NewPrng();
+  const BASE_URL = "https://api.erdstall.dev/token/";
   const provider = waffle.provider;
 
   let prn: PerunToken;
@@ -119,7 +118,7 @@ describe("Erdstall", () => {
 
     // 3. Deploy PerunArt with holder as minter
     const prnArtFactory = (await ethers.getContractFactory("PerunArt", accounts[OP])) as PerunArt__factory;
-    prnArt = await prnArtFactory.deploy("PerunArt", "PART", [erc721Holder.address]);
+    prnArt = await prnArtFactory.deploy("PerunArt", "PART", BASE_URL, [erc721Holder.address]);
     await prnArt.deployed();
 
     // 4. Register PerunArt token contact
@@ -175,7 +174,9 @@ describe("Erdstall", () => {
       .to.emit(erdstall, "Withdrawn"))
       .to.changeTokenBalance(prn, accounts[ALICE], amount);
 
-    for (const id of tknIds)
+    for (const id of tknIds) {
       expect(await prnArt.ownerOf(id)).to.equal(aliceAddr);
+      expect(await prnArt.tokenURI(id)).to.equal(`${BASE_URL}${id}`);
+    }
   });
 });
