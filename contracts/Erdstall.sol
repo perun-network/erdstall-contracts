@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 
 import "./TokenHolder.sol";
 import "./lib/Sig.sol";
+import "./lib/Bytes.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Erdstall is Ownable {
@@ -59,7 +60,12 @@ contract Erdstall is Ownable {
     function registerTokenType(address holder, string calldata tokenType)
     external onlyOwner
     {
-        require(empty(tokenTypes[holder]), "token type already registered");
+        string storage regTokenType = tokenTypes[holder];
+        if (!empty(regTokenType)) {
+            require(Bytes.areEqualStr(regTokenType, tokenType),
+                    "registered token type mismatch");
+            return;
+        }
         tokenTypes[holder] = tokenType;
 
         emit TokenTypeRegistered(tokenType, holder);
@@ -74,19 +80,16 @@ contract Erdstall is Ownable {
     // Lets the owner manually register a token's holder. This is usually done
     // implicitly during deposits.
     function registerToken(address token, address holder) external onlyOwner {
-        require(address(tokenHolders[token]) == address(0),
-                "Erdstall: token holder already set");
-        _registerToken(token, holder);
+        ensureTokenRegistered(token, holder);
     }
 
     // called during deposits to ensure that token can be mapped back to token
     // holder during withdrawals.
     function ensureTokenRegistered(address token, address holder) internal {
         address regHolder = address(tokenHolders[token]);
-        if (regHolder == holder) {
+        if (regHolder != address(0)) {
+            require(regHolder == holder, "registered holder mismatch");
             return;
-        } else if (regHolder != address(0)) {
-            revert("registered holder mismatch");
         }
         _registerToken(token, holder);
     }
