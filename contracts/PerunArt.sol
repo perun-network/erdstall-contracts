@@ -45,7 +45,7 @@ contract PerunArt is ERC721 {
             minters[_minter] = true;
     }
 
-    function mint(address to, uint256 id) external onlyMinter {
+    function mint(address to, uint256 id) external virtual onlyMinter {
         _mint(to, id);
     }
 }
