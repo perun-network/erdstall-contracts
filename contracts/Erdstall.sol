@@ -45,6 +45,8 @@ contract Erdstall is Ownable {
     event TokenRegistered(address indexed token, string tokenType, address tokenHolder);
     event Deposited(uint64 indexed epoch, address indexed account, address token, bytes value);
     event Withdrawn(uint64 indexed epoch, address indexed account, TokenValue[] tokens);
+    event WithdrawalException(uint64 indexed epoch, address indexed account, address indexed token,
+                              bytes value, bytes error);
     event Challenged(uint64 indexed epoch, address indexed account);
     event ChallengeResponded(uint64 indexed epoch, address indexed account, TokenValue[] tokens, bytes sig);
     event Frozen(uint64 indexed epoch);
@@ -187,8 +189,13 @@ contract Erdstall is Ownable {
         withdrawn[_epoch][msg.sender] = true;
 
         for (uint i=0; i < tokens.length; i++) {
-            TokenHolder holder = getTokenHolder(tokens[i].token);
-            holder.transfer(tokens[i].token, msg.sender, tokens[i].value);
+            TokenValue memory tv = tokens[i];
+            TokenHolder holder = getTokenHolder(tv.token);
+            try holder.transfer(tv.token, msg.sender, tv.value) {
+                // successful withdrawal of this token
+            } catch (bytes memory error) {
+                emit WithdrawalException(_epoch, msg.sender, tv.token, tv.value, error);
+            }
         }
 
         emit Withdrawn(_epoch, msg.sender, tokens);
