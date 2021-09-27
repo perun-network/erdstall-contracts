@@ -3,6 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
 contract PerunArt is ERC721 {
     string private baseURI;
@@ -30,7 +31,8 @@ contract PerunArt is ERC721 {
                 string memory _uriBase, address[] memory _minters)
     ERC721(_name, _symbol)
     {
-        baseURI = _uriBase;
+        string memory thisAddr = Strings.toHexString(uint(uint160(address(this))), 20);
+        baseURI = string(abi.encodePacked(_uriBase, thisAddr, "/"));
         owner = msg.sender;
         for (uint i=0; i < _minters.length; i++) {
             minters[_minters[i]] = true;

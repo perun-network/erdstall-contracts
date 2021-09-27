@@ -178,7 +178,7 @@ describe("Erdstall", () => {
 
     for (const id of tknIds) {
       expect(await prnArt.ownerOf(id)).to.equal(aliceAddr);
-      expect(await prnArt.tokenURI(id)).to.equal(`${BASE_URL}${id}`);
+      expect(await prnArt.tokenURI(id)).to.equal(`${BASE_URL}${prnArt.address.toLowerCase()}/${id}`);
     }
   });
 
