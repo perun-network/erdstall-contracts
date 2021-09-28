@@ -127,7 +127,7 @@ describe("Erdstall", () => {
       .to.emit(erdstall, "TokenRegistered");
   });
 
-  it("deposit 1 Ether by Alice", async () => {
+  it("deposit 1 Ether [Alice]", async () => {
     const ethHolderAlice = ethHolder.connect(accounts[ALICE]);
     const amount = utils.parseEther("1");
     await expect(await ethHolderAlice.deposit({value: amount}))
@@ -135,7 +135,7 @@ describe("Erdstall", () => {
       .and.emit(erdstall, "Deposited");
   });
 
-  it("deposit 10 PRN by Bob", async () => {
+  it("deposit 10 PRN [Bob]", async () => {
     const amount = utils.parseEther("10");
 
     const prnBob = prn.connect(accounts[BOB]);
@@ -155,15 +155,16 @@ describe("Erdstall", () => {
     console.log(`Sealing 0 mined ${bdelta} blocks...`);
   });
 
+  const aliceTknIds = [420n, 3000n];
+
   it("withdrawing 5 PRN and Erdstall-minted NFTs should mint them on-chain [Alice]", async function() {
-    const tknIds = [420n, 3000n];
     const amount = utils.parseEther("5");
     const bal = new Balance(
       0n, // epoch
       aliceAddr, // account
       true, // exit
       new Assets(
-        { token: prnArt.address, asset: new Tokens(tknIds) },
+        { token: prnArt.address, asset: new Tokens(aliceTknIds) },
         { token: prn.address, asset: new Amount(amount.toBigInt()) },
       ),
     );
@@ -176,9 +177,25 @@ describe("Erdstall", () => {
       .and.to.not.emit(erdstall, "WithdrawalException"))
       .to.changeTokenBalance(prn, accounts[ALICE], amount);
 
-    for (const id of tknIds) {
+    for (const id of aliceTknIds) {
       expect(await prnArt.ownerOf(id)).to.equal(aliceAddr);
       expect(await prnArt.tokenURI(id)).to.equal(`${BASE_URL}${prnArt.address.toLowerCase()}/${id}`);
+    }
+  });
+
+  it("deposit minted NFTs back into Erdstall [Alice]", async function() {
+    const partAlice = prnArt.connect(accounts[ALICE]);
+    for (const id of aliceTknIds) {
+      await expect(partAlice.approve(erc721Holder.address, id))
+        .to.emit(prnArt, "Approval");
+    }
+
+    const erc721HolderAlice = erc721Holder.connect(accounts[ALICE]);
+    await expect(erc721HolderAlice.deposit(prnArt.address, aliceTknIds))
+      .to.emit(prnArt, "Transfer")
+      .and.emit(erdstall, "Deposited");
+    for (const id of aliceTknIds) {
+      expect(await prnArt.ownerOf(id)).to.equal(erc721Holder.address);
     }
   });
 
