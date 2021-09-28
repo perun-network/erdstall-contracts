@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 
 import "./TokenHolder.sol";
 import "./lib/Sig.sol";
+import "./lib/Bytes.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Erdstall is Ownable {
@@ -44,6 +45,8 @@ contract Erdstall is Ownable {
     event TokenRegistered(address indexed token, string tokenType, address tokenHolder);
     event Deposited(uint64 indexed epoch, address indexed account, address token, bytes value);
     event Withdrawn(uint64 indexed epoch, address indexed account, TokenValue[] tokens);
+    event WithdrawalException(uint64 indexed epoch, address indexed account, address indexed token,
+                              bytes value, bytes error);
     event Challenged(uint64 indexed epoch, address indexed account);
     event ChallengeResponded(uint64 indexed epoch, address indexed account, TokenValue[] tokens, bytes sig);
     event Frozen(uint64 indexed epoch);
@@ -59,7 +62,12 @@ contract Erdstall is Ownable {
     function registerTokenType(address holder, string calldata tokenType)
     external onlyOwner
     {
-        require(empty(tokenTypes[holder]), "token type already registered");
+        string storage regTokenType = tokenTypes[holder];
+        if (!empty(regTokenType)) {
+            require(Bytes.areEqualStr(regTokenType, tokenType),
+                    "registered token type mismatch");
+            return;
+        }
         tokenTypes[holder] = tokenType;
 
         emit TokenTypeRegistered(tokenType, holder);
@@ -74,19 +82,16 @@ contract Erdstall is Ownable {
     // Lets the owner manually register a token's holder. This is usually done
     // implicitly during deposits.
     function registerToken(address token, address holder) external onlyOwner {
-        require(address(tokenHolders[token]) == address(0),
-                "Erdstall: token holder already set");
-        _registerToken(token, holder);
+        ensureTokenRegistered(token, holder);
     }
 
     // called during deposits to ensure that token can be mapped back to token
     // holder during withdrawals.
     function ensureTokenRegistered(address token, address holder) internal {
         address regHolder = address(tokenHolders[token]);
-        if (regHolder == holder) {
+        if (regHolder != address(0)) {
+            require(regHolder == holder, "registered holder mismatch");
             return;
-        } else if (regHolder != address(0)) {
-            revert("registered holder mismatch");
         }
         _registerToken(token, holder);
     }
@@ -184,8 +189,13 @@ contract Erdstall is Ownable {
         withdrawn[_epoch][msg.sender] = true;
 
         for (uint i=0; i < tokens.length; i++) {
-            TokenHolder holder = getTokenHolder(tokens[i].token);
-            holder.transfer(tokens[i].token, msg.sender, tokens[i].value);
+            TokenValue memory tv = tokens[i];
+            TokenHolder holder = getTokenHolder(tv.token);
+            try holder.transfer(tv.token, msg.sender, tv.value) {
+                // successful withdrawal of this token
+            } catch (bytes memory error) {
+                emit WithdrawalException(_epoch, msg.sender, tv.token, tv.value, error);
+            }
         }
 
         emit Withdrawn(_epoch, msg.sender, tokens);

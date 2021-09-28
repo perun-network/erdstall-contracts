@@ -5,6 +5,14 @@ pragma solidity ^0.8.0;
 // Minimal bytes library, inspired by
 // https://github.com/GNSPS/solidity-bytes-utils
 library Bytes {
+    function areEqual(bytes memory x, bytes memory y) internal pure returns (bool) {
+        return (x.length == y.length) && (keccak256(x) == keccak256(y));
+    }
+
+    function areEqualStr(string memory x, string memory y) internal pure returns (bool) {
+        return areEqual(bytes(x), bytes(y));
+    }
+
     function asUint256(bytes memory x) internal pure returns (uint256 r) {
         require(x.length == 32, "Bytes: not length 32");
         assembly {

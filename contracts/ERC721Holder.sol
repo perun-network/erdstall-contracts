@@ -30,7 +30,7 @@ contract ERC721Holder is TokenHolder {
     {
         IERC721 token = IERC721(_token);
         for (uint i=0; i < ids.length; i++) {
-            token.safeTransferFrom(from, to, ids[i]);
+            token.transferFrom(from, to, ids[i]);
         }
     }
 }
@@ -57,7 +57,7 @@ contract ERC721MintableHolder is ERC721Holder {
     function transferOrMint(IERC721Minter token, address to, uint256 id) internal {
         try token.ownerOf(id) returns (address owner) {
             if (owner == address(this)) {
-                token.safeTransferFrom(address(this), to, id);
+                token.transferFrom(address(this), to, id);
             }
             // else token exists, but owned by someone else, so we skip
             // minting it. In a production setting, there has to be some
